@@ -2,15 +2,37 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 )
 
+// Struct for commands
 type cliCommand struct {
 	name        string
 	description string
-	callback    func() error
+	callback    func(*config) error
+}
+
+// Structs for JSON parsing
+type LocationAreaResponse struct {
+	Count    int            `json:"count"`
+	Next     string         `json:"next"`
+	Previous string         `json:"previous"`
+	Results  []LocationArea `json:"results"`
+}
+
+type LocationArea struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// Nie wiem czy potrzebny i nie wykorzystac wiekszego struct ale jesli bede potrzebowal to mozna gonapelnic wskazujac na poprzednia i kolejna strone
+type config struct {
+	Next     string
+	Previous string
 }
 
 var polecenia map[string]cliCommand // Declare globally
@@ -27,6 +49,16 @@ func init() {
 			description: "Exit the Pokedex",
 			callback:    commandExit,
 		},
+		"map": {
+			name:        "map",
+			description: "Displays first/next location areas",
+			callback:    commandMap,
+		},
+		"mapb": {
+			name:        "mapb",
+			description: "Displays previous location areas",
+			callback:    commandMapb,
+		},
 	}
 }
 
@@ -34,13 +66,78 @@ func cleanInput(text string) []string {
 	return strings.Fields(strings.ToLower(text))
 }
 
-func commandExit() error {
+func commandMap(cfg *config) error {
+	url := "https://pokeapi.co/api/v2/location-area/"
+	if cfg.Next != "" && cfg.Next != "null" {
+		url = cfg.Next
+	}
+
+	data, err := czytajAreas(url)
+	if err != nil {
+		return err
+	}
+
+	// Save next and previous pages in config
+	cfg.Next = data.Next
+	cfg.Previous = data.Previous
+
+	for _, loc := range data.Results {
+		fmt.Println(loc.Name)
+	}
+
+	return nil
+}
+
+func commandMapb(cfg *config) error {
+	url := "https://pokeapi.co/api/v2/location-area/"
+	if cfg.Previous != "" && cfg.Previous != "null" {
+		url = cfg.Previous
+	} else {
+		fmt.Println("you’re on the first page")
+		return nil
+	}
+
+	data, err := czytajAreas(url)
+	if err != nil {
+		return err
+	}
+
+	// Save next and previous pages in config
+	cfg.Next = data.Next
+	cfg.Previous = data.Previous
+
+	for _, loc := range data.Results {
+		fmt.Println(loc.Name)
+	}
+
+	return nil
+}
+
+func czytajAreas(url string) (LocationAreaResponse, error) {
+
+	var data LocationAreaResponse
+
+	res, err := http.Get(url)
+	if err != nil {
+		return data, err
+	}
+
+	defer res.Body.Close()
+
+	err = json.NewDecoder(res.Body).Decode(&data)
+	if err != nil {
+		return data, err
+	}
+	return data, nil
+}
+
+func commandExit(cfg *config) error {
 	fmt.Println("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return nil
 }
 
-func commandHelp() error {
+func commandHelp(cfg *config) error {
 	tresc := `Welcome to the Pokedex!
 Usage:
 
@@ -54,13 +151,16 @@ Usage:
 }
 
 func main() {
+	const kolor = "\033[34m" // blue
+	const reset = "\033[0m"
 
 	fmt.Println("Hello, World!")
 
 	scanner := bufio.NewScanner(os.Stdin)
+	cfg := &config{} // Create a config instance
 
 	for {
-		fmt.Print("Pokedex > ")
+		fmt.Printf("%sPokedex > %s", kolor, reset)
 		scanner.Scan()
 		input := scanner.Text()
 		slowa := cleanInput(input)
@@ -69,7 +169,7 @@ func main() {
 			//fmt.Printf("Your command was: %s\n", slowa[0])
 			polecenie, ok := polecenia[slowo]
 			if ok {
-				polecenie.callback()
+				polecenie.callback(cfg)
 			} else {
 				fmt.Println("Unknown command")
 			}
