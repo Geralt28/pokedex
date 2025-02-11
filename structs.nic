@@ -1,0 +1,27 @@
+package main
+
+// Struct for commands
+type cliCommand struct {
+	name        string
+	description string
+	callback    func(*config, string) error
+}
+
+// Structs for JSON parsing
+type LocationAreaResponse struct {
+	Count    int            `json:"count"`
+	Next     string         `json:"next"`
+	Previous string         `json:"previous"`
+	Results  []LocationArea `json:"results"`
+}
+
+type LocationArea struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+// Nie wiem czy potrzebny i nie wykorzystac wiekszego struct ale jesli bede potrzebowal to mozna go napelnic wskazujac na poprzednia i kolejna strone
+type config struct {
+	Next     string
+	Previous string
+}

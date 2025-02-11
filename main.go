@@ -1,7 +1,5 @@
 package main
 
-//import "github.com/Geralt28/pokedex/pokecache"
-
 import (
 	"bufio"
 	"encoding/json"
@@ -39,6 +37,11 @@ func init() {
 			description: "Displays previous location areas",
 			callback:    commandMapb,
 		},
+		"explore": {
+			name:        "explore",
+			description: "Show list of all Pokémon's located in the location area",
+			callback:    commandExplore,
+		},
 	}
 }
 
@@ -46,7 +49,7 @@ func init() {
 type cliCommand struct {
 	name        string
 	description string
-	callback    func(*config) error
+	callback    func(*config, string) error
 }
 
 // Structs for JSON parsing
@@ -62,17 +65,70 @@ type LocationArea struct {
 	URL  string `json:"url"`
 }
 
-// Nie wiem czy potrzebny i nie wykorzystac wiekszego struct ale jesli bede potrzebowal to mozna gonapelnic wskazujac na poprzednia i kolejna strone
+// Nie wiem czy potrzebny i nie wykorzystac wiekszego struct ale jesli bede potrzebowal to mozna go napelnic wskazujac na poprzednia i kolejna strone
 type config struct {
 	Next     string
 	Previous string
 }
 
+// do explore - pozniej structy przeniesc do osobnego pliku
+// ********************* Start Explore ********************
+type LocationExplore struct {
+	ID                   int                   `json:"id"`
+	Name                 string                `json:"name"`
+	GameIndex            int                   `json:"game_index"`
+	EncounterMethodRates []EncounterMethodRate `json:"encounter_method_rates"`
+	Location             NamedAPIResource      `json:"location"`
+	Names                []Name                `json:"names"`
+	PokemonEncounters    []PokemonEncounter    `json:"pokemon_encounters"`
+}
+
+type EncounterMethodRate struct {
+	EncounterMethod NamedAPIResource          `json:"encounter_method"`
+	VersionDetails  []EncounterVersionDetails `json:"version_details"`
+}
+
+type EncounterVersionDetails struct {
+	Rate    int              `json:"rate"`
+	Version NamedAPIResource `json:"version"`
+}
+
+type NamedAPIResource struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+type Name struct {
+	Name     string           `json:"name"`
+	Language NamedAPIResource `json:"language"`
+}
+
+type PokemonEncounter struct {
+	Pokemon        NamedAPIResource         `json:"pokemon"`
+	VersionDetails []VersionEncounterDetail `json:"version_details"`
+}
+
+type VersionEncounterDetail struct {
+	Version          NamedAPIResource  `json:"version"`
+	MaxChance        int               `json:"max_chance"`
+	EncounterDetails []EncounterDetail `json:"encounter_details"`
+}
+
+type EncounterDetail struct {
+	MinLevel        int                `json:"min_level"`
+	MaxLevel        int                `json:"max_level"`
+	ConditionValues []NamedAPIResource `json:"condition_values"`
+	Chance          int                `json:"chance"`
+	Method          NamedAPIResource   `json:"method"`
+}
+
+// ********************* End Explore ********************
+
 func cleanInput(text string) []string {
 	return strings.Fields(strings.ToLower(text))
 }
 
-func commandMap(cfg *config) error {
+func commandMap(cfg *config, _ string) error {
 	url := "https://pokeapi.co/api/v2/location-area/?offset=0&limit=20"
 	if cfg.Next != "" && cfg.Next != "null" {
 		url = cfg.Next
@@ -94,7 +150,7 @@ func commandMap(cfg *config) error {
 	return nil
 }
 
-func commandMapb(cfg *config) error {
+func commandMapb(cfg *config, _ string) error {
 	url := "https://pokeapi.co/api/v2/location-area/?offset=0&limit=20"
 	if cfg.Previous != "" && cfg.Previous != "null" {
 		url = cfg.Previous
@@ -115,7 +171,49 @@ func commandMapb(cfg *config) error {
 	for _, loc := range data.Results {
 		fmt.Println(loc.Name)
 	}
+	return nil
+}
 
+func commandExplore(_ *config, location string) error {
+	// zrobic czytanie pola i przez byte wrzucanie do struct. W srodku sprawdzanie cachu lub jesli nie dodawanie do cachu. Nastepnie drukowanie wynikow
+	if len(location) == 0 {
+		return fmt.Errorf("Brak wskazanego obszaru po explore!")
+	}
+
+	url := "https://pokeapi.co/api/v2/location-area/" + location
+
+	data, err := czytajExplore(url)
+	if err != nil {
+		fmt.Println(fmt.Sprintf("Error: Probably bad area name: %s!", location))
+		return err
+	}
+
+	//i tu zrobic cos z data - np. wydrukowac, na wzor ponizej, ale zmienic
+	fmt.Println(fmt.Sprintf(`Exploring %s...
+Found Pokemon:`, location))
+	for _, pokemon := range data.PokemonEncounters {
+		//for _, loc := range data.Results {
+		fmt.Println("-", pokemon.Pokemon.Name)
+	}
+	return nil
+}
+
+func commandExit(cfg *config, _ string) error {
+	fmt.Println("Closing the Pokedex... Goodbye!")
+	os.Exit(0)
+	return nil
+}
+
+func commandHelp(cfg *config, _ string) error {
+	tresc := `Welcome to the Pokedex!
+Usage:
+
+`
+	for _, c := range polecenia {
+		dodaj_txt := fmt.Sprintf("%s: %s\n", c.name, c.description)
+		tresc = tresc + dodaj_txt
+	}
+	fmt.Print(tresc)
 	return nil
 }
 
@@ -155,23 +253,39 @@ func czytajAreas(url string) (LocationAreaResponse, error) {
 	return data, nil
 }
 
-func commandExit(cfg *config) error {
-	fmt.Println("Closing the Pokedex... Goodbye!")
-	os.Exit(0)
-	return nil
-}
+func czytajExplore(url string) (LocationExplore, error) {
 
-func commandHelp(cfg *config) error {
-	tresc := `Welcome to the Pokedex!
-Usage:
+	var data LocationExplore
 
-`
-	for _, c := range polecenia {
-		dodaj_txt := fmt.Sprintf("%s: %s\n", c.name, c.description)
-		tresc = tresc + dodaj_txt
+	byte_data, ok := cache.Get(url)
+	//if ok {
+	//	fmt.Printf("Using cache!") // Debug message
+	//} else {
+	//	fmt.Println("Cache miss! Fetching from API.") // Debug message
+	//}
+
+	if !ok {
+		res, err := http.Get(url)
+		if err != nil {
+			return data, err
+		}
+
+		defer res.Body.Close()
+
+		byte_data, err = io.ReadAll(res.Body)
+		//err = json.NewDecoder(res.Body).Decode(&data)
+		if err != nil {
+			return data, err
+		}
+
+		cache.Add(url, byte_data)
 	}
-	fmt.Print(tresc)
-	return nil
+
+	if err := json.Unmarshal(byte_data, &data); err != nil {
+		return data, err
+	}
+
+	return data, nil
 }
 
 func main() {
@@ -190,12 +304,17 @@ func main() {
 		scanner.Scan()
 		input := scanner.Text()
 		slowa := cleanInput(input)
-		if len(slowa) > 0 {
+		dl := len(slowa)
+		if dl > 0 {
 			slowo := slowa[0]
 			//fmt.Printf("Your command was: %s\n", slowa[0])
 			polecenie, ok := polecenia[slowo]
 			if ok {
-				polecenie.callback(cfg)
+				str := ""
+				if dl > 1 {
+					str = slowa[1]
+				}
+				polecenie.callback(cfg, str)
 			} else {
 				fmt.Println("Unknown command")
 			}
